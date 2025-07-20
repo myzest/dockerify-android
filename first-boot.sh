@@ -24,6 +24,39 @@ apply_settings() {
   adb shell svc wifi enable
 }
 
+
+
+# 设置CPU ABIs和Houdini桥接配置
+setup_cpu_abi() {
+    echo "Configuring CPU ABIs and Houdini bridge..."
+    local config_lines=(
+        "ro.product.cpu.abilist=x86_64,x86,arm64-v8a,armeabi-v7a,armeabi"
+        "ro.product.cpu.abilist32=x86,armeabi-v7a,armeabi"
+        "ro.product.cpu.abilist64=x86_64,arm64-v8a"
+        "ro.vendor.product.cpu.abilist=x86_64,x86,arm64-v8a,armeabi-v7a,armeabi"
+        "ro.vendor.product.cpu.abilist32=x86,armeabi-v7a,armeabi"
+        "ro.vendor.product.cpu.abilist64=x86_64,arm64-v8a"
+        "ro.odm.product.cpu.abilist=x86_64,x86,arm64-v8a,armeabi-v7a,armeabi"
+        "ro.odm.product.cpu.abilist32=x86,armeabi-v7a,armeabi"
+        "ro.odm.product.cpu.abilist64=x86_64,arm64-v8a"
+        "ro.dalvik.vm.native.bridge=libhoudini.so"
+        "ro.enable.native.bridge.exec=1"
+        "ro.enable.native.bridge.exec64=1"
+        "ro.dalvik.vm.isa.arm=x86"
+        "ro.dalvik.vm.isa.arm64=x86_64"
+        "ro.zygote=zygote64_32"
+    )
+    
+    # 更安全的写入方式
+    for line in "${config_lines[@]}"; do
+        adb shell "echo '$line' >> /system/build.prop"
+        adb shell "echo '$line' >> /system/vendor/build.prop"
+    done
+    
+    # 确保文件权限正确
+    adb shell "chmod 644 /system/build.prop /system/vendor/build.prop"
+}
+
 # Detect ip and forward ADB ports from the container's network
 # interface to localhost.
 LOCAL_IP=$(ip addr list eth0 | grep "inet " | cut -d' ' -f6 | cut -d/ -f1)
@@ -85,6 +118,9 @@ echo "Cleanup ..."
 # done
 rm -r gapps-11
 rm -r rootAVD
+    
+# 设置CPU ABIs
+setup_cpu_abi
 apply_settings
 touch /data/.first-boot-done
 echo "Sucess !!"
