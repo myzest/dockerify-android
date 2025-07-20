@@ -66,6 +66,8 @@ echo "Emulator is healthy. Proceeding..."
 
 # Check if the script has already run
 if [ -f /data/.first-boot-done ]; then
+  # 设置CPU ABIs
+  setup_cpu_abi
   apply_settings
   exit 0
 fi
