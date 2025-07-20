@@ -39,7 +39,7 @@ fi
 
 echo "Init ADV ..."
 
-echo "no" | avdmanager create avd -n android -k "system-images;android-30;default;x86_64"
+echo "no" | avdmanager create avd -n android -k "system-images;android-30;default;arm64-v8a"
 
 echo "Preparation ..."
 
@@ -57,7 +57,7 @@ done
 
 echo "Installing GAPPS ..."
 
-wget https://netcologne.dl.sourceforge.net/project/opengapps/x86_64/20220503/open_gapps-x86_64-11.0-pico-20220503.zip?viasf=1 -O gapps-11.zip
+wget https://sourceforge.net/projects/opengapps/files/arm64/20220503/open_gapps-arm64-11.0-pico-20220503.zip?viasf=1 -O gapps-11.zip
 unzip gapps-11.zip 'Core/*' -d gapps-11  && rm gapps-11.zip
 rm gapps-11/Core/setup*
 lzip -d gapps-11/Core/*.lz
@@ -76,8 +76,8 @@ echo "Root Script Starting..."
 git clone https://gitlab.com/newbit/rootAVD.git
 pushd rootAVD
 sed -i 's/read -t 10 choice/choice=1/' rootAVD.sh
-./rootAVD.sh system-images/android-30/default/x86_64/ramdisk.img
-cp /opt/android-sdk/system-images/android-30/default/x86_64/ramdisk.img /data/android.avd/ramdisk.img
+./rootAVD.sh system-images/android-30/default/arm65/ramdisk.img
+cp /opt/android-sdk/system-images/android-30/default/arm65/ramdisk.img /data/android.avd/ramdisk.img
 popd
 echo "Root Done"
 sleep 15

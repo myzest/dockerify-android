@@ -43,7 +43,7 @@ RUN mkdir /root/.android/ && \
 
 
 # Detect architecture and set environment variable
-RUN yes | sdkmanager --sdk_root=$ANDROID_HOME "emulator" "platform-tools" "platforms;android-30" "system-images;android-30;default;x86_64"
+RUN yes | sdkmanager --sdk_root=$ANDROID_HOME "emulator" "platform-tools" "platforms;android-30" "system-images;android-30;default;arm64-v8a"
 # RUN if [ "$(uname -m)" = "aarch64" ]; then \
 #         unzip /root/emulator.zip -d $ANDROID_HOME && \
 # 	mv /root/package.xml $ANDROID_HOME/emulator/package.xml && \
