@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 定义 system.img 路径
-SYSTEM_IMG="/data/android.avd/system.img"
+SYSTEM_IMG=$(find / -name "system.img" 2>/dev/null | head -n 1)
 
 # 检查文件是否存在
 if [ ! -f "$SYSTEM_IMG" ]; then
