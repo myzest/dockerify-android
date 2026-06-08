@@ -1,5 +1,6 @@
 # Ignore Docker files
 *.env
+!profiles/**/profile.env
 *.log
 
 # Ignore OS-specific files

@@ -23,6 +23,7 @@ services:
       ROOT_SETUP: ${ROOT_SETUP:-0} # set to 1 to enable rooting
       GAPPS_SETUP: ${GAPPS_SETUP:-0} # set to 1 to install PICO GAPPS
       ARM_TRANSLATION: ${ARM_TRANSLATION:-1} # set to 1 to enable ARM translation (allows ARM64 apps)
+      ALLOW_NO_KVM: ${ALLOW_NO_KVM:-0} # only bypass the KVM preflight for non-x86 experimental images
     privileged: true
     devices:
       - /dev/kvm

@@ -22,6 +22,32 @@ android_system_image_relpath() {
   android_system_image_package | tr ';' '/'
 }
 
+requires_kvm_for_system_image() {
+  case "$(android_system_image_package)" in
+    *";x86"|*";x86_64") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+kvm_available() {
+  [ -e /dev/kvm ] && [ -r /dev/kvm ] && [ -w /dev/kvm ]
+}
+
+preflight_emulator_runtime() {
+  if [ "${ALLOW_NO_KVM:-0}" = "1" ]; then
+    return 0
+  fi
+  if requires_kvm_for_system_image && ! kvm_available; then
+    cat >&2 <<'EOF'
+KVM is required to boot the configured x86/x86_64 Android emulator image.
+/dev/kvm is not available inside this container, so first boot cannot continue.
+Use a Linux host with KVM exposed, or set ALLOW_NO_KVM=1 only for an image that
+can boot without KVM.
+EOF
+    return 78
+  fi
+}
+
 apply_settings() {
   adb wait-for-device
   # Waiting for the boot sequence to be completed.
@@ -317,6 +343,8 @@ copy_extras() {
 # Detect the container's IP and forward ADB to localhost.
 LOCAL_IP=$(ip addr list eth0 | grep "inet " | cut -d' ' -f6 | cut -d/ -f1)
 socat tcp-listen:"5555",bind="$LOCAL_IP",fork tcp:127.0.0.1:"5555" &
+
+preflight_emulator_runtime || exit $?
 
 gapps_needed=false
 root_needed=false

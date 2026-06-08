@@ -75,6 +75,12 @@ Before you begin, ensure you have met the following requirements:
 
     A non-zero output indicates KVM support.
 
+  - **Docker Desktop for macOS:** the default x86_64 emulator image requires
+    `/dev/kvm` inside the Linux Docker VM. Recent Docker Desktop versions on
+    Apple Silicon can build this image, but they usually do not expose KVM to
+    containers, so the emulator cannot complete first boot there. Use a Linux
+    host with KVM exposed for runtime validation.
+
 ## 🚀 **Installation**
 
 To simplify the setup process, you can use the provided [docker-compose.yml](https://github.com/Shmayro/dockerify-android/blob/main/docker-compose.yml) file.
@@ -152,6 +158,7 @@ scrcpy -s localhost:5555
 | `ROOT_SETUP` | Set to `1` to enable rooting and Magisk. Can be turned on after the first start but cannot be undone without recreating the data volume. | `0` |
 | `GAPPS_SETUP` | Set to `1` to install PICO GAPPS. Can be turned on after the first start but cannot be undone without recreating the data volume. | `0` |
 | `ARM_TRANSLATION` | Set to `1` to enable ARM translation (ndk_translation) for running ARM/ARM64 apps on x86_64. Can be turned on after the first start but cannot be undone without recreating the data volume. | `1` in Compose |
+| `ALLOW_NO_KVM` | Bypass the KVM preflight. Use only with an experimental non-x86 image that can boot without KVM. | `0` |
 
 ### Device Profiles
 
@@ -195,6 +202,42 @@ The `scrcpy-web` container connects to the Android service by Compose service
 name, `dockerify-android:5555`. Keep the service names in `docker-compose.yml`
 unchanged; use `COMPOSE_PROJECT_NAME`, container-name variables, ports, and data
 directories to separate instances.
+
+### macOS Native Runner
+
+Docker Desktop for macOS can build the Docker image, but it usually cannot expose
+`/dev/kvm` to Linux containers. For local Mac usage, run the Android Emulator
+natively on macOS and reuse the same device profiles:
+
+```bash
+./scripts/macos-doctor.sh
+./scripts/macos-bootstrap-sdk.sh
+DEVICE_PROFILE=pixel_5_android_11 ./scripts/macos-run-avd.sh
+./scripts/macos-verify-profile.sh
+```
+
+If Android Studio or an Android SDK is already installed, the runner reuses it
+from `ANDROID_HOME`, `ANDROID_SDK_ROOT`, or `~/Library/Android/sdk`. If not,
+`macos-bootstrap-sdk.sh` installs Android command-line tools into
+`~/.dockerify-android/android-sdk` and installs the emulator, platform-tools,
+platform package, and the profile's macOS system image.
+
+Useful macOS runner variables:
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `MACOS_AVD_NAME` | Override the generated AVD name | profile default |
+| `MACOS_EMULATOR_PORT` | Emulator console/ADB port pair base | `5584` |
+| `MACOS_SYSTEM_IMAGE` | Override the selected SDK system image package | profile/host ABI default |
+| `MACOS_BOOT_TIMEOUT` | Seconds to wait for Android boot completion | `300` |
+| `MACOS_EMULATOR_EXTRA_ARGS` | Extra arguments appended to the emulator command. The runner starts headless with `-no-window` by default. | empty |
+
+The macOS runner is a native, profile-driven test environment. It supports AVD
+creation, display/RAM config, locale/timezone/device-name/battery settings, and
+verification. It does not manage the Docker-only root/Magisk, OpenGApps
+injection, ndk_translation, or `/system/build.prop` write path. Build identity
+properties such as `ro.product.model` and `ro.build.fingerprint` come from the
+selected official macOS system image unless you separately root/modify that AVD.
 
 
 ## 🔄 **First Boot Process**
@@ -269,6 +312,19 @@ Builds from the `main` branch are published as development images using `edge` a
 - [x] Redirect all logs to container stdout/stderr
 
 ## 🐞 **Troubleshooting**
+
+- **`KVM is required to boot the configured x86/x86_64 Android emulator image`:**
+  - The default Android 11 x86_64 emulator cannot boot unless `/dev/kvm` is
+    available inside the container.
+  - Verify it from the host/container:
+    ```bash
+    ls -l /dev/kvm
+    docker run --rm --privileged --platform linux/amd64 ubuntu:20.04 ls -l /dev/kvm
+    ```
+  - On Docker Desktop for macOS this device is usually not exposed, even when
+    image builds work. Run the stack on a Linux host with KVM, or use
+    `ALLOW_NO_KVM=1` only after switching to a system image that supports
+    software-only boot.
 
 - **ADB Connection Refused:**
   - **Ensure ADB Server is Running:**

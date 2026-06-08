@@ -6,6 +6,26 @@ if [ -f "$PROFILE_LIB" ]; then
   load_device_profile
 fi
 
+require_kvm() {
+  if [ "${ALLOW_NO_KVM:-0}" = "1" ]; then
+    return 0
+  fi
+  if [ -e /dev/kvm ] && [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+    return 0
+  fi
+
+  cat >&2 <<'EOF'
+KVM is required to boot the default x86_64 Android emulator image.
+/dev/kvm is not available inside this container. On Docker Desktop for macOS,
+the Docker Linux VM usually does not expose KVM to containers, so the emulator
+cannot complete first boot with the default profile.
+
+Run this image on a Linux host with KVM exposed, or set ALLOW_NO_KVM=1 only when
+using a system image that can boot without KVM.
+EOF
+  exit 78
+}
+
 # Kill any running emulator instances before starting a new one
 pkill -f "/opt/android-sdk/emulator/emulator"
 
@@ -46,6 +66,8 @@ if [ -f "$CONFIG_FILE" ]; then
     fi
   fi
 fi
+
+require_kvm
 
 # Start the emulator with the appropriate ramdisk.img
 /opt/android-sdk/emulator/emulator -avd android -nojni -netfast -writable-system -no-window -no-audio -no-boot-anim -skip-adb-auth -gpu swiftshader_indirect -no-snapshot -no-metrics $RAMDISK -qemu -m ${RAM_SIZE:-4096}
