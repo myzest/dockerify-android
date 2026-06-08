@@ -1,10 +1,25 @@
 #!/bin/bash
 
+PROFILE_LIB="/opt/dockerify-android/scripts/profile-lib.sh"
+if [ -f "$PROFILE_LIB" ]; then
+  . "$PROFILE_LIB"
+  load_device_profile
+  profile_validate_android_version || exit 1
+fi
+
 bool_true() {
   case "${1,,}" in
     1|true|yes) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+android_system_image_package() {
+  printf '%s\n' "${ANDROID_SYSTEM_IMAGE:-system-images;android-30;default;x86_64}"
+}
+
+android_system_image_relpath() {
+  android_system_image_package | tr ';' '/'
 }
 
 apply_settings() {
@@ -28,6 +43,38 @@ apply_settings() {
   adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true
   adb shell svc data disable
   adb shell svc wifi enable
+  if type profile_apply_runtime_settings >/dev/null 2>&1; then
+    profile_apply_runtime_settings
+  fi
+  if type profile_run_custom_settings >/dev/null 2>&1; then
+    profile_run_custom_settings
+  fi
+}
+
+wait_for_boot_completed() {
+  local completed
+  local waited=0
+
+  adb wait-for-device
+  completed=$(adb shell getprop sys.boot_completed | tr -d '\r')
+  while [ "$completed" != "1" ]; do
+    sleep 5
+    waited=$((waited + 5))
+    if [ "$waited" -ge 300 ]; then
+      echo "Timed out waiting for Android boot completion"
+      return 1
+    fi
+    completed=$(adb shell getprop sys.boot_completed | tr -d '\r')
+  done
+}
+
+restart_emulator_process() {
+  echo "Restarting emulator process to load the patched ramdisk and Magisk ..."
+  pkill -f "/opt/android-sdk/emulator/emulator" || true
+  adb kill-server || true
+  timeout 300 adb wait-for-device || return 1
+  wait_for_boot_completed || return 1
+  adb root || true
 }
 
 prepare_system() {
@@ -42,9 +89,17 @@ prepare_system() {
 }
 
 magisk_active() {
-  # Magisk env is ready (binaries populated) — either by install_root in this
-  # session or by a previously-rooted run. Empty /data/adb/magisk doesn't count.
-  adb shell 'test -x /data/adb/magisk/magiskinit && echo MAGISK_READY' 2>/dev/null | grep -q MAGISK_READY
+  # Module installs are only safe after Magisk is active in this boot, not merely
+  # after its files have been copied into /data.
+  adb shell '
+    test -x /data/adb/magisk/magiskinit || exit 1
+    [ "$(getprop init.svc.magiskd)" = "running" ] ||
+      pidof magiskd >/dev/null 2>&1 ||
+      [ -d /sbin/.magisk ] ||
+      [ -d /debug_ramdisk/.magisk ] ||
+      exit 1
+    echo MAGISK_READY
+  ' 2>/dev/null | grep -q MAGISK_READY
 }
 
 install_gapps_magisk_module() {
@@ -104,16 +159,19 @@ install_gapps() {
 }
 
 install_root() {
+  local system_image_path
+
   adb wait-for-device
   adb root
   echo "Root Script Starting..."
+  system_image_path="$(android_system_image_relpath)"
   # Root the AVD by patching the ramdisk.
   mkdir -p /tmp/rootavd
   tar -xzf /opt/rootavd.tar.gz --strip-components=1 -C /tmp/rootavd
   pushd /tmp/rootavd
   sed -i 's/read -t 10 choice/choice=1/' rootAVD.sh
-  ./rootAVD.sh system-images/android-30/default/x86_64/ramdisk.img
-  cp /opt/android-sdk/system-images/android-30/default/x86_64/ramdisk.img /data/android.avd/ramdisk.img
+  ./rootAVD.sh "${system_image_path}/ramdisk.img"
+  cp "${ANDROID_HOME}/${system_image_path}/ramdisk.img" /data/android.avd/ramdisk.img
 
   # Pre-populate /data/adb/magisk so Magisk's env-check passes on next boot.
   # rootAVD only patches the ramdisk; the "additional setup" tap in the Magisk
@@ -263,6 +321,7 @@ socat tcp-listen:"5555",bind="$LOCAL_IP",fork tcp:127.0.0.1:"5555" &
 gapps_needed=false
 root_needed=false
 arm_translation_needed=false
+root_installed_this_boot=false
 if bool_true "$GAPPS_SETUP" && [ ! -f /data/.gapps-done ]; then gapps_needed=true; fi
 if bool_true "$ROOT_SETUP" && [ ! -f /data/.root-done ]; then root_needed=true; fi
 if bool_true "$ARM_TRANSLATION" && [ ! -f /data/.arm-translation-done ]; then arm_translation_needed=true; fi
@@ -270,7 +329,10 @@ if bool_true "$ARM_TRANSLATION" && [ ! -f /data/.arm-translation-done ]; then ar
 # Create the AVD on first boot only.
 if [ ! -f /data/.first-boot-done ]; then
   echo "Init AVD ..."
-  echo "no" | avdmanager create avd -n android -k "system-images;android-30;default;x86_64"
+  echo "no" | avdmanager create avd -n android -k "$(android_system_image_package)"
+  if type profile_apply_avd_config >/dev/null 2>&1; then
+    profile_apply_avd_config /data/android.avd/config.ini
+  fi
 fi
 
 # Each install is self-contained: prepares the system, applies its changes,
@@ -281,11 +343,38 @@ fi
 # and arm_translation installs then detect a ready Magisk env and write their
 # payload to /data/adb/modules/<id>/ instead of /system. Modules sit dormant
 # until the next QEMU restart loads the patched ramdisk and Magisk activates.
-[ "$root_needed" = true ]            && install_root
+if [ "$root_needed" = true ]; then
+  install_root && root_installed_this_boot=true
+  if restart_emulator_process; then
+    root_installed_this_boot=false
+  else
+    echo "Warning: failed to restart emulator after root; forcing profile props into /system"
+  fi
+fi
 [ "$gapps_needed" = true ]           && install_gapps
 [ "$arm_translation_needed" = true ] && install_arm_translation
+if type profile_needs_system_props >/dev/null 2>&1 && profile_needs_system_props; then
+  if [ "$root_installed_this_boot" = true ]; then
+    export PROFILE_FORCE_SYSTEM_PROPS=1
+  fi
+  if profile_install_system_props; then
+    adb reboot || exit 1
+    adb wait-for-device || exit 1
+    if type profile_verify_system_props >/dev/null 2>&1; then
+      profile_verify_system_props || exit 1
+    fi
+    profile_mark_system_props_applied
+  else
+    echo "Error: failed to install device profile system properties" >&2
+    exit 1
+  fi
+fi
 apply_settings
 copy_extras
+
+if [ -x /opt/dockerify-android/scripts/verify-profile.sh ]; then
+  /opt/dockerify-android/scripts/verify-profile.sh || true
+fi
 
 touch /data/.first-boot-done
 echo "Success !!"

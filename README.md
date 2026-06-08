@@ -143,13 +143,58 @@ scrcpy -s localhost:5555
 
 | Variable | Description | Default |
 | --- | --- | --- |
+| `DEVICE_PROFILE` | Device profile loaded from `profiles/<name>` | `pixel_5_android_11` |
+| `DOCKER_PLATFORM` | Docker platform used for emulator containers. Android Emulator Linux packages are x86_64-only. | `linux/amd64` |
 | `DNS` | Private DNS server used inside the emulator | `one.one.one.one` |
 | `RAM_SIZE` | RAM in megabytes allocated to the emulator | `4096` |
 | `SCREEN_RESOLUTION` | Screen size in `WIDTHxHEIGHT` format (e.g. `1080x1920`) | device default |
 | `SCREEN_DENSITY` | Screen pixel density in DPI | device default |
 | `ROOT_SETUP` | Set to `1` to enable rooting and Magisk. Can be turned on after the first start but cannot be undone without recreating the data volume. | `0` |
 | `GAPPS_SETUP` | Set to `1` to install PICO GAPPS. Can be turned on after the first start but cannot be undone without recreating the data volume. | `0` |
-| `ARM_TRANSLATION` | Set to `1` to enable ARM translation (ndk_translation) for running ARM/ARM64 apps on x86_64. Can be turned on after the first start but cannot be undone without recreating the data volume. | `0` |
+| `ARM_TRANSLATION` | Set to `1` to enable ARM translation (ndk_translation) for running ARM/ARM64 apps on x86_64. Can be turned on after the first start but cannot be undone without recreating the data volume. | `1` in Compose |
+
+### Device Profiles
+
+Dockerify Android supports repeatable test-device profiles. A profile can set
+the AVD display/RAM configuration, Android system properties, locale, timezone,
+device name, battery state, expected Android version, and custom post-boot
+settings.
+
+The default profile is `pixel_5_android_11`, which matches the current Android
+30 / Android 11 emulator base:
+
+```bash
+DEVICE_PROFILE=pixel_5_android_11 docker compose up -d
+```
+
+To add another device, copy `profiles/templates/android_11_device` to a new
+directory under `profiles/`, edit the values, and set `DEVICE_PROFILE` to that
+directory name. Runtime overrides such as `SCREEN_RESOLUTION`, `SCREEN_DENSITY`,
+`RAM_SIZE`, and `DNS` still take precedence over profile defaults.
+
+Each profile declares `PROFILE_ANDROID_API_LEVEL` and `PROFILE_ANDROID_RELEASE`.
+The boot script refuses to apply a profile that does not match the Android
+system image baked into the Docker image. Add Android 12/13 profiles only after
+the Docker image supports the matching system image.
+
+For multiple emulator instances, give each stack its own Compose project,
+container names, ports, and data directory:
+
+```bash
+COMPOSE_PROJECT_NAME=pixel5 \
+ANDROID_CONTAINER_NAME=dockerify-android-pixel5 \
+SCRCPY_CONTAINER_NAME=scrcpy-web-pixel5 \
+DEVICE_PROFILE=pixel_5_android_11 \
+DATA_DIR=./data/pixel_5 \
+ADB_PORT=5555 \
+WEB_PORT=8000 \
+docker compose up -d
+```
+
+The `scrcpy-web` container connects to the Android service by Compose service
+name, `dockerify-android:5555`. Keep the service names in `docker-compose.yml`
+unchanged; use `COMPOSE_PROJECT_NAME`, container-name variables, ports, and data
+directories to separate instances.
 
 
 ## 🔄 **First Boot Process**

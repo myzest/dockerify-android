@@ -1,36 +1,40 @@
 ---
 services:
   dockerify-android:
-    container_name: dockerify-android
+    container_name: ${ANDROID_CONTAINER_NAME:-dockerify-android}
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     image: shmayro/dockerify-android:latest
     build:
       context: .
     ports:
-      - "5555:5555"
+      - "${ADB_PORT:-5555}:5555"
     volumes:
-      - ./data:/data
+      - ${DATA_DIR:-./data}:/data
       - ./extras:/extras
+      - ./profiles:/opt/dockerify-android/profiles:ro
     environment:
-      DNS: one.one.one.one
-      # RAM_SIZE: 4096
+      DEVICE_PROFILE: ${DEVICE_PROFILE:-pixel_5_android_11}
+      DNS: ${DNS:-}
+      RAM_SIZE: ${RAM_SIZE:-}
       # Optional screen resolution in WIDTHxHEIGHT format
-      #SCREEN_RESOLUTION: 720x720
+      SCREEN_RESOLUTION: ${SCREEN_RESOLUTION:-}
       # Optional screen density (dpi)
-      #SCREEN_DENSITY: 227
-      ROOT_SETUP: 0 # set to 1 to enable rooting
-      GAPPS_SETUP: 0 # set to 1 to install PICO GAPPS
-      ARM_TRANSLATION: 1 # set to 1 to enable ARM translation (allows ARM64 apps)
+      SCREEN_DENSITY: ${SCREEN_DENSITY:-}
+      ROOT_SETUP: ${ROOT_SETUP:-0} # set to 1 to enable rooting
+      GAPPS_SETUP: ${GAPPS_SETUP:-0} # set to 1 to install PICO GAPPS
+      ARM_TRANSLATION: ${ARM_TRANSLATION:-1} # set to 1 to enable ARM translation (allows ARM64 apps)
     privileged: true
     devices:
       - /dev/kvm
 
   scrcpy-web:
-    container_name: scrcpy-web
+    container_name: ${SCRCPY_CONTAINER_NAME:-scrcpy-web}
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     restart: unless-stopped
     image: shmayro/scrcpy-web:latest
     privileged: true
     ports:
-      - 8000:8000
+      - "${WEB_PORT:-8000}:8000"
     depends_on:
       dockerify-android:
         condition: service_healthy
@@ -39,4 +43,3 @@ services:
         adb connect dockerify-android:5555 &&
         npm start
       "
-

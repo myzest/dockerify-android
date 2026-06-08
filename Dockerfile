@@ -1,4 +1,5 @@
-FROM ubuntu:20.04
+ARG IMAGE_PLATFORM=linux/amd64
+FROM --platform=${IMAGE_PLATFORM} ubuntu:20.04
 
 # Install necessary packages
 RUN apt-get update && \
@@ -44,6 +45,9 @@ RUN mkdir -p /opt/android-sdk/cmdline-tools && \
 
 ENV ANDROID_HOME=/opt/android-sdk
 ENV ANDROID_AVD_HOME=/data
+ENV ANDROID_API_LEVEL=30
+ENV ANDROID_RELEASE=11
+ENV ANDROID_SYSTEM_IMAGE="system-images;android-30;default;x86_64"
 ENV ADB_DIR="$ANDROID_HOME/platform-tools"
 ENV PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ADB_DIR:$PATH"
 
@@ -58,8 +62,8 @@ RUN mkdir /root/.android/ && \
 #COPY emulator/package.xml /root/package.xml
 
 
-# Detect architecture and set environment variable
-RUN yes | sdkmanager --sdk_root=$ANDROID_HOME "emulator" "platform-tools" "platforms;android-30" "system-images;android-30;default;x86_64"
+# Android Emulator Linux packages are x86_64-only; build the image as amd64.
+RUN yes | sdkmanager --sdk_root=$ANDROID_HOME "emulator" "platform-tools" "platforms;android-${ANDROID_API_LEVEL}" "${ANDROID_SYSTEM_IMAGE}"
 # remove /opt/android-sdk/emulator/crashpad_handler
 RUN rm -f /opt/android-sdk/emulator/crashpad_handler
 # RUN if [ "$(uname -m)" = "aarch64" ]; then \
@@ -75,6 +79,12 @@ RUN rm -f /opt/android-sdk/emulator/crashpad_handler
 
 # Copy supervisor config
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Copy device profiles and helper scripts
+COPY profiles /opt/dockerify-android/profiles
+COPY scripts /opt/dockerify-android/scripts
+RUN chmod +x /opt/dockerify-android/scripts/*.sh && \
+    find /opt/dockerify-android/profiles -name "*.sh" -exec chmod +x {} \;
 
 # Copy the rootAVD repository
 #COPY rootAVD /root/rootAVD

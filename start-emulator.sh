@@ -1,5 +1,11 @@
 #!/bin/bash
 
+PROFILE_LIB="/opt/dockerify-android/scripts/profile-lib.sh"
+if [ -f "$PROFILE_LIB" ]; then
+  . "$PROFILE_LIB"
+  load_device_profile
+fi
+
 # Kill any running emulator instances before starting a new one
 pkill -f "/opt/android-sdk/emulator/emulator"
 
@@ -24,16 +30,20 @@ update_config() {
   fi
 }
 
-# Configure optional screen resolution and density directly via config.ini
+# Configure optional profile and environment values directly via config.ini
 if [ -f "$CONFIG_FILE" ]; then
-  if [ -n "$SCREEN_RESOLUTION" ]; then
-    WIDTH=${SCREEN_RESOLUTION%x*}
-    HEIGHT=${SCREEN_RESOLUTION#*x}
-    update_config "hw.lcd.width" "$WIDTH"
-    update_config "hw.lcd.height" "$HEIGHT"
-  fi
-  if [ -n "$SCREEN_DENSITY" ]; then
-    update_config "hw.lcd.density" "$SCREEN_DENSITY"
+  if type profile_apply_avd_config >/dev/null 2>&1; then
+    profile_apply_avd_config "$CONFIG_FILE"
+  else
+    if [ -n "$SCREEN_RESOLUTION" ]; then
+      WIDTH=${SCREEN_RESOLUTION%x*}
+      HEIGHT=${SCREEN_RESOLUTION#*x}
+      update_config "hw.lcd.width" "$WIDTH"
+      update_config "hw.lcd.height" "$HEIGHT"
+    fi
+    if [ -n "$SCREEN_DENSITY" ]; then
+      update_config "hw.lcd.density" "$SCREEN_DENSITY"
+    fi
   fi
 fi
 
