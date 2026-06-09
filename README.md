@@ -160,6 +160,11 @@ scrcpy -s localhost:5555
 | `ARM_TRANSLATION` | Set to `1` to enable ARM translation (ndk_translation) for running ARM/ARM64 apps on x86_64. Can be turned on after the first start but cannot be undone without recreating the data volume. | `1` in Compose |
 | `ALLOW_NO_KVM` | Bypass the KVM preflight. Use only with an experimental non-x86 image that can boot without KVM. | `0` |
 
+Profile defaults are loaded before emulator startup. If `RAM_SIZE`,
+`SCREEN_RESOLUTION`, `SCREEN_DENSITY`, or `DNS` is unset or empty, the selected
+profile can provide the effective value; for example the default Pixel 5 profile
+sets `RAM_SIZE=8192` unless you override it.
+
 ### Device Profiles
 
 Dockerify Android supports repeatable test-device profiles. A profile can set
@@ -183,6 +188,76 @@ Each profile declares `PROFILE_ANDROID_API_LEVEL` and `PROFILE_ANDROID_RELEASE`.
 The boot script refuses to apply a profile that does not match the Android
 system image baked into the Docker image. Add Android 12/13 profiles only after
 the Docker image supports the matching system image.
+
+The bundled `pixel_5_android_11` profile is tuned as a high-fidelity Pixel 5
+compatibility profile. It applies strict Pixel-style build properties plus
+best-effort release metadata, display metrics, locale/timezone, battery state,
+network presentation, and AVD sensor/camera settings. This improves ordinary
+app-visible device consistency, but it does not turn the emulator into
+hardware-backed Pixel hardware: TEE, StrongBox, baseband/SIM/IMEI, real sensor
+noise, hardware Play Integrity, and low-level QEMU/KVM artifacts remain
+emulator boundaries.
+
+Device name/model values are meant to be grounded in public device mapping
+datasets such as `bsthen/device-models` and
+`androidtrackers/certified-android-devices`. The default profile cross-checks
+the certified Pixel 5 mapping `brand=Google`, `device=redfin`,
+`model=Pixel 5`, `name=Pixel 5`.
+
+To inspect the active device after boot:
+
+```bash
+docker exec dockerify-android /opt/dockerify-android/scripts/verify-profile.sh
+docker exec dockerify-android /opt/dockerify-android/scripts/audit-real-device-fidelity.sh
+```
+
+When using the macOS native runner, run the same audit against the emulator
+serial. The audit automatically treats build-property mismatches as
+informational because the macOS runner does not install `props.system` or
+`props.optional` into the system image:
+
+```bash
+ANDROID_SERIAL=emulator-5584 ./scripts/audit-real-device-fidelity.sh
+```
+
+For a repeatable local Mac integrity check, run:
+
+```bash
+./scripts/macos-integrity-test.sh
+```
+
+### DevInfo-driven fidelity checks
+
+A local DevInfo APK (`com.liuzh.deviceinfo`, v2.6.9) was used as a concrete
+app-visible oracle for the Pixel 5 profile. The APK was pulled from the running
+AVD and inspected with jadx; the decisive UI cards read these sources:
+
+| DevInfo field | App read source | Profile/control path | Current result |
+| --- | --- | --- | --- |
+| Device name | `Build.DEVICE` / `Build.MODEL` plus bundled device-name DB | `props.system` via `scripts/macos-apply-system-props.sh` or Docker first boot | `redfin` |
+| Brand/model/manufacturer/device/board | `Build.BRAND`, `Build.MODEL`, `Build.MANUFACTURER`, `Build.DEVICE`, `Build.BOARD` | `props.system` | `google`, `Pixel 5`, `Google`, `redfin`, `redfin` |
+| Hardware | `Build.HARDWARE` | boot/kernel-owned emulator property | still `ranchu` |
+| Android ID | `Settings.Secure.getString(..., "android_id")` | generated per Android data image | stable per AVD data; not profile-forced |
+| GSF / Advertising ID | Google services provider / advertising-id service | Google services state | stable per installed services; not profile-forced |
+| Hardware serial | `Build.SERIAL` | Android/emulator serial policy | still `unknown` in DevInfo |
+| Build fingerprint | `Build.FINGERPRINT` | `props.system` | `google/redfin/redfin:11/RQ3A.211001.001/7641976:user/release-keys` |
+| Device type/operator/network | `TelephonyManager.getPhoneType()`, `getNetworkOperatorName()`, `getNetworkType()` | runtime `gsm.*` profile properties | `GSM`, `T-Mobile`, `LTE` |
+| Build number / ID / patch | `Build.DISPLAY`, `Build.ID`, `Build.VERSION.SECURITY_PATCH` | `props.system` / `props.optional` | `RQ3A.211001.001`, `2021-10-05` |
+| Baseband | `Build.getRadioVersion()` | runtime `gsm.version.baseband` | `g7250-00123-211001-B-7641976` |
+| Root access | `Build.TAGS` contains `test-keys` or `which su` paths | `ro.build.tags=release-keys`; no Magisk in macOS AVD | `No` |
+| CPU hardware/frequency | `/proc/cpuinfo`, `/sys/devices/system/cpu/*/cpufreq/*`, fallback `Build.HARDWARE` | kernel/emulator-owned | still `ranchu`, `0MHz - 0MHz` |
+| GPU renderer/vendor/version | OpenGL/EGL runtime | emulator GPU stack | still ANGLE/SwiftShader |
+
+The important implementation detail is that Android loads properties from more
+than just `/system/build.prop`. The macOS overlay script filters existing keys
+from all observed build-property files, including `/vendor/odm/etc/build.prop`,
+then appends the selected profile values to `/system/build.prop`. A reboot is
+required because `ro.*` / `Build.*` values are read-only after init.
+
+Known emulator boundaries after these changes are expected and audited: low-level
+`ro.hardware` / `ro.boot.hardware`, kernel QEMU flags, bootloader state,
+ADB/developer settings, `/proc/cpuinfo`, cpufreq sysfs, and ANGLE/SwiftShader
+GPU strings.
 
 For multiple emulator instances, give each stack its own Compose project,
 container names, ports, and data directory:
@@ -233,11 +308,22 @@ Useful macOS runner variables:
 | `MACOS_EMULATOR_EXTRA_ARGS` | Extra arguments appended to the emulator command. The runner starts headless with `-no-window` by default. | empty |
 
 The macOS runner is a native, profile-driven test environment. It supports AVD
-creation, display/RAM config, locale/timezone/device-name/battery settings, and
-verification. It does not manage the Docker-only root/Magisk, OpenGApps
-injection, ndk_translation, or `/system/build.prop` write path. Build identity
-properties such as `ro.product.model` and `ro.build.fingerprint` come from the
-selected official macOS system image unless you separately root/modify that AVD.
+creation, display/RAM config, locale/timezone/device-name/battery/radio
+presentation settings, and verification. By default it does not mutate the
+system image. For local app-visible `Build.*` parity, restart/start the AVD with
+a writable system image and apply the profile overlay explicitly:
+
+```bash
+MACOS_NO_WINDOW=0 MACOS_EMULATOR_EXTRA_ARGS='-writable-system' ./scripts/macos-run-avd.sh
+./scripts/macos-apply-system-props.sh
+```
+
+The overlay script backs up observed build-property files under
+`/data/local/tmp/dockerify-build-prop-backups/`, filters duplicate profile keys
+from `/system`, `/vendor`, `/product`, `/system_ext`, `/odm`, and
+`/vendor/odm/etc/build.prop`, appends the selected profile values to
+`/system/build.prop`, reboots, and reapplies runtime settings. It still does not
+manage Docker-only root/Magisk, OpenGApps injection, or ndk_translation.
 
 
 ## 🔄 **First Boot Process**
@@ -272,13 +358,13 @@ The first time you start the container, it will perform a comprehensive setup pr
 > ```bash
 > docker compose restart
 > ```
-> This ensures the following optimizations are applied:
-> - Disabled animations for better performance
-> - Screen timeout set to 15 seconds
-> - Disabled rotation
-> - Custom DNS settings
-> - Airplane mode enabled (with WiFi still active)
-> - Data connection disabled
+> This reapplies the base runtime settings and any selected profile overrides.
+> The base script disables animations, sets a short screen timeout, disables
+> rotation, configures DNS, enables airplane mode with WiFi, and disables mobile
+> data. A device profile can intentionally override these values; for example,
+> the default Pixel 5 profile uses normal animation scale, a 60-second screen
+> timeout, airplane mode off, WiFi on, and mobile data off to look more like a
+> handset at the framework settings layer.
 
 After the first boot completes, a file marker is created to prevent running the initialization again on subsequent starts.
 

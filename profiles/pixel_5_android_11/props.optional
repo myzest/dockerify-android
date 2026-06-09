@@ -1,0 +1,50 @@
+# Best-effort Pixel 5 compatibility properties.
+# These are installed together with props.system, but are not fatal if Android's
+# boot property order or emulator runtime refuses to expose the requested value.
+# Boot-chain properties such as ro.boot.* are intentionally not forced here:
+# they are set by the emulator boot path and audited separately.
+
+# Patch/security metadata aligned with the Android 11 Pixel 5 build selected in
+# props.system. Static compatibility values only; not hardware-backed.
+ro.build.version.security_patch=2021-10-05
+ro.vendor.build.security_patch=2021-10-05
+ro.system.build.version.security_patch=2021-10-05
+ro.product.first_api_level=30
+ro.board.first_api_level=30
+ro.vendor.api_level=30
+ro.build.version.incremental=7641976
+ro.build.user=android-build
+ro.build.host=abfarm-release-rbe-64-00077
+
+# Pixel-style product metadata frequently queried by SDKs and analytics code.
+ro.product.locale=en-US
+ro.com.google.clientidbase=android-google
+ro.com.android.dataroaming=false
+ro.com.android.wifi-watchlist=GoogleGuest
+ro.url.legal=http://www.google.com/intl/%s/mobile/android/basic/phone-legal.html
+ro.url.legal.android_privacy=http://www.google.com/intl/%s/mobile/android/basic/privacy.html
+ro.setupwizard.mode=OPTIONAL
+ro.opa.eligible_device=true
+ro.com.google.ime.theme_id=5
+
+# App-level graphics/display defaults. Low-level GPU/HAL driver selectors stay
+# emulator-native to avoid breaking rendering.
+ro.opengles.version=196610
+ro.sf.lcd_density=440
+
+# Radio/telephony presentation. The emulator cannot provide a real baseband,
+# SIM, IMEI, or carrier network, but these reduce blank/default framework values.
+ro.telephony.default_network=9,9
+ro.telephony.call_ring.multiple=false
+ro.com.android.mobiledata=false
+persist.radio.multisim.config=
+persist.sys.fflag.override.settings_provider_model=false
+
+# Audio/camera/sensor presentation helpers. Hardware devices remain virtual,
+# but framework-level feature checks see a fuller handset-shaped environment.
+ro.camera.sound.forced=0
+ro.audio.monitorRotation=true
+ro.audio.ignore_effects=false
+ro.vendor.audio.sdk.fluencetype=fluence
+ro.vendor.audio.sdk.ssr=false
+ro.vendor.audio.sdk.ssr.pcmdump=false

@@ -84,6 +84,41 @@ append_plist_string() {
   printf '    <string>%s</string>\n' "$(plist_escape "$1")" >> "$LAUNCHD_PLIST"
 }
 
+append_macos_boot_props() {
+  local props_file
+  local key
+  local value
+  local line
+
+  props_file="$(macos_boot_props_file)"
+  [ -s "$props_file" ] || return 0
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    case "$line" in
+      ""|\#*) continue ;;
+    esac
+    key="${line%%=*}"
+    value="${line#*=}"
+    key="$(printf '%s' "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    value="$(printf '%s' "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    if [ "${#key}" -gt 32 ] || [ "${#value}" -gt 92 ]; then
+      macos_log "Skipping boot prop outside emulator -prop limits: ${key}"
+      continue
+    fi
+    append_plist_string "-prop"
+    append_plist_string "${key}=${value}"
+  done < "$props_file"
+}
+
+adb_setprop_if_set() {
+  local key="$1"
+  local value="$2"
+
+  [ -n "$value" ] || return 0
+  adb -s "$SERIAL" shell "setprop ${key} $(profile_shell_quote "$value")" >/dev/null 2>&1 || true
+}
+
 launchd_job_loaded() {
   launchctl print "$LAUNCHD_JOB" >/dev/null 2>&1
 }
@@ -149,6 +184,7 @@ write_launchd_plist() {
   append_plist_string "-netfast"
   append_plist_string "-adb-path"
   append_plist_string "$adb_path"
+  append_macos_boot_props
   if [ -n "$wipe_arg" ]; then
     append_plist_string "$wipe_arg"
   fi
@@ -200,6 +236,7 @@ start_emulator() {
 
 apply_runtime_profile() {
   local adb_base=(adb -s "$SERIAL")
+  local quoted_value
 
   macos_log "Waiting for Android boot completion"
   macos_wait_for_boot "$SERIAL" "$PID_FILE"
@@ -223,17 +260,83 @@ apply_runtime_profile() {
   fi
 
   if [ -n "${PROFILE_DEVICE_NAME:-}" ]; then
-    "${adb_base[@]}" shell settings put global device_name "$PROFILE_DEVICE_NAME" || true
-    "${adb_base[@]}" shell settings put secure bluetooth_name "$PROFILE_DEVICE_NAME" || true
+    quoted_value="$(profile_shell_quote "$PROFILE_DEVICE_NAME")"
+    "${adb_base[@]}" shell "settings put global device_name ${quoted_value}" || true
+    "${adb_base[@]}" shell "settings put secure bluetooth_name ${quoted_value}" || true
+  fi
+
+  if [ -n "${PROFILE_AUTO_TIME:-}" ]; then
+    "${adb_base[@]}" shell settings put global auto_time "$PROFILE_AUTO_TIME" || true
+  fi
+
+  if [ -n "${PROFILE_AUTO_TIME_ZONE:-}" ]; then
+    "${adb_base[@]}" shell settings put global auto_time_zone "$PROFILE_AUTO_TIME_ZONE" || true
   fi
 
   if [ -n "${PROFILE_ACCELEROMETER_ROTATION:-}" ]; then
     "${adb_base[@]}" shell settings put system accelerometer_rotation "$PROFILE_ACCELEROMETER_ROTATION" || true
   fi
 
+  if [ -n "${PROFILE_WINDOW_ANIMATION_SCALE:-}" ]; then
+    "${adb_base[@]}" shell settings put global window_animation_scale "$PROFILE_WINDOW_ANIMATION_SCALE" || true
+  fi
+
+  if [ -n "${PROFILE_TRANSITION_ANIMATION_SCALE:-}" ]; then
+    "${adb_base[@]}" shell settings put global transition_animation_scale "$PROFILE_TRANSITION_ANIMATION_SCALE" || true
+  fi
+
+  if [ -n "${PROFILE_ANIMATOR_DURATION_SCALE:-}" ]; then
+    "${adb_base[@]}" shell settings put global animator_duration_scale "$PROFILE_ANIMATOR_DURATION_SCALE" || true
+  fi
+
+  if [ -n "${PROFILE_STAY_ON_WHILE_PLUGGED_IN:-}" ]; then
+    "${adb_base[@]}" shell settings put global stay_on_while_plugged_in "$PROFILE_STAY_ON_WHILE_PLUGGED_IN" || true
+  fi
+
+  if [ -n "${PROFILE_SCREEN_OFF_TIMEOUT_MS:-}" ]; then
+    "${adb_base[@]}" shell settings put system screen_off_timeout "$PROFILE_SCREEN_OFF_TIMEOUT_MS" || true
+  fi
+
+  if [ -n "${PROFILE_AIRPLANE_MODE:-}" ]; then
+    "${adb_base[@]}" shell settings put global airplane_mode_on "$PROFILE_AIRPLANE_MODE" || true
+    if [ "$PROFILE_AIRPLANE_MODE" = "1" ]; then
+      "${adb_base[@]}" shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true >/dev/null 2>&1 || true
+    else
+      "${adb_base[@]}" shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state false >/dev/null 2>&1 || true
+    fi
+  fi
+
+  if [ -n "${PROFILE_WIFI_ENABLED:-}" ]; then
+    if [ "$PROFILE_WIFI_ENABLED" = "1" ]; then
+      "${adb_base[@]}" shell svc wifi enable || true
+    else
+      "${adb_base[@]}" shell svc wifi disable || true
+    fi
+  fi
+
+  if [ -n "${PROFILE_MOBILE_DATA_ENABLED:-}" ]; then
+    if [ "$PROFILE_MOBILE_DATA_ENABLED" = "1" ]; then
+      "${adb_base[@]}" shell svc data enable || true
+    else
+      "${adb_base[@]}" shell svc data disable || true
+    fi
+  fi
+
   if [ -n "${PROFILE_LOCATION_MODE:-}" ]; then
     "${adb_base[@]}" shell settings put secure location_mode "$PROFILE_LOCATION_MODE" || true
   fi
+
+  adb_setprop_if_set "gsm.version.baseband" "${PROFILE_BASEBAND_VERSION:-}"
+  adb_setprop_if_set "gsm.current.phone-type" "${PROFILE_GSM_CURRENT_PHONE_TYPE:-}"
+  adb_setprop_if_set "gsm.network.type" "${PROFILE_GSM_NETWORK_TYPE:-}"
+  adb_setprop_if_set "gsm.operator.alpha" "${PROFILE_GSM_OPERATOR_ALPHA:-}"
+  adb_setprop_if_set "gsm.operator.numeric" "${PROFILE_GSM_OPERATOR_NUMERIC:-}"
+  adb_setprop_if_set "gsm.operator.iso-country" "${PROFILE_GSM_OPERATOR_ISO_COUNTRY:-}"
+  adb_setprop_if_set "gsm.operator.isroaming" "${PROFILE_GSM_OPERATOR_ISROAMING:-}"
+  adb_setprop_if_set "gsm.sim.operator.alpha" "${PROFILE_GSM_SIM_OPERATOR_ALPHA:-}"
+  adb_setprop_if_set "gsm.sim.operator.numeric" "${PROFILE_GSM_SIM_OPERATOR_NUMERIC:-}"
+  adb_setprop_if_set "gsm.sim.operator.iso-country" "${PROFILE_GSM_SIM_OPERATOR_ISO_COUNTRY:-}"
+  adb_setprop_if_set "gsm.sim.state" "${PROFILE_GSM_SIM_STATE:-}"
 
   if [ -n "${PROFILE_BATTERY_LEVEL:-}" ]; then
     "${adb_base[@]}" shell dumpsys battery set level "$PROFILE_BATTERY_LEVEL" || true

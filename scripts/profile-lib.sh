@@ -5,6 +5,7 @@ DEVICE_PROFILE="${DEVICE_PROFILE:-pixel_5_android_11}"
 PROFILE_DIR="${PROFILE_ROOT}/${DEVICE_PROFILE}"
 PROFILE_ENV="${PROFILE_DIR}/profile.env"
 PROFILE_PROPS="${PROFILE_DIR}/props.system"
+PROFILE_OPTIONAL_PROPS="${PROFILE_DIR}/props.optional"
 PROFILE_AVD="${PROFILE_DIR}/avd.ini"
 PROFILE_SETTINGS="${PROFILE_DIR}/settings.sh"
 PROFILE_STATE_FILE="${PROFILE_STATE_FILE:-/data/.device-profile-state}"
@@ -12,6 +13,18 @@ PROFILE_LOADED=false
 
 profile_log() {
   echo "[profile] $*"
+}
+
+profile_shell_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+profile_adb_setprop_if_set() {
+  local key="$1"
+  local value="$2"
+
+  [ -n "$value" ] || return 0
+  adb shell "setprop ${key} $(profile_shell_quote "$value")" || true
 }
 
 profile_require() {
@@ -139,13 +152,39 @@ profile_apply_avd_config() {
   profile_log "Applied AVD config to ${config_file}"
 }
 
+profile_has_system_props() {
+  [ -s "$PROFILE_PROPS" ] || [ -s "$PROFILE_OPTIONAL_PROPS" ]
+}
+
+profile_props_files() {
+  [ -s "$PROFILE_PROPS" ] && printf '%s\n' "$PROFILE_PROPS"
+  [ -s "$PROFILE_OPTIONAL_PROPS" ] && printf '%s\n' "$PROFILE_OPTIONAL_PROPS"
+}
+
+profile_write_combined_props() {
+  local output_file="$1"
+  local props_file
+
+  : > "$output_file"
+  while IFS= read -r props_file; do
+    {
+      echo ""
+      echo "# Dockerify Android profile source: $(basename "$props_file")"
+      cat "$props_file"
+    } >> "$output_file"
+  done < <(profile_props_files)
+}
+
 profile_props_signature() {
-  if [ ! -f "$PROFILE_PROPS" ]; then
-    return 1
-  fi
+  local props_file
+
+  profile_has_system_props || return 1
   {
     printf '%s\n' "$DEVICE_PROFILE"
-    sha256sum "$PROFILE_ENV" "$PROFILE_PROPS" 2>/dev/null || true
+    [ -f "$PROFILE_ENV" ] && sha256sum "$PROFILE_ENV"
+    while IFS= read -r props_file; do
+      sha256sum "$props_file"
+    done < <(profile_props_files)
   } | sha256sum | awk '{print $1}'
 }
 
@@ -153,7 +192,7 @@ profile_needs_system_props() {
   local signature
 
   load_device_profile
-  [ -s "$PROFILE_PROPS" ] || return 1
+  profile_has_system_props || return 1
   signature="$(profile_props_signature)"
   [ -n "$signature" ] || return 1
 
@@ -182,7 +221,11 @@ profile_mark_system_props_applied() {
 }
 
 profile_property_keys() {
-  grep -vE '^[[:space:]]*($|#)' "$PROFILE_PROPS" | awk -F= '{print $1}' | tr '\n' ' '
+  local props_file
+
+  while IFS= read -r props_file; do
+    grep -vE '^[[:space:]]*($|#)' "$props_file" | awk -F= '{print $1}'
+  done < <(profile_props_files) | tr '\n' ' '
 }
 
 profile_previous_property_keys() {
@@ -198,6 +241,12 @@ profile_combined_property_keys() {
   } | tr ' ' '\n' | sed '/^$/d' | sort -u | tr '\n' ' '
 }
 
+profile_write_property_keys_file() {
+  local output_file="$1"
+
+  profile_combined_property_keys | tr ' ' '\n' | sed '/^$/d' > "$output_file"
+}
+
 profile_prepare_system() {
   adb wait-for-device || return 1
   adb root || return 1
@@ -211,9 +260,16 @@ profile_prepare_system() {
 
 profile_install_props_magisk() {
   local mod="/data/adb/modules/device_profile"
+  local props_tmp
 
   profile_log "Installing device profile as a Magisk module"
-  adb push "$PROFILE_PROPS" /data/local/tmp/device-profile-system.prop || return 1
+  props_tmp="$(mktemp)"
+  profile_write_combined_props "$props_tmp"
+  adb push "$props_tmp" /data/local/tmp/device-profile-system.prop || {
+    rm -f "$props_tmp"
+    return 1
+  }
+  rm -f "$props_tmp"
   adb shell "
     set -e
     rm -rf ${mod}
@@ -233,28 +289,68 @@ PROP
 }
 
 profile_install_props_system() {
-  local keys
   local safe_profile
+  local props_tmp
+  local keys_tmp
 
   profile_log "Installing device profile into system build properties"
   profile_prepare_system || return 1
-  keys="$(profile_combined_property_keys)"
   safe_profile="$(printf '%s' "$DEVICE_PROFILE" | sed 's/[^A-Za-z0-9_.-]/_/g')"
-  adb push "$PROFILE_PROPS" /data/local/tmp/device-profile.props || return 1
-  adb shell "DEVICE_PROFILE='${safe_profile}' PROFILE_KEYS='${keys}' sh -s" <<'ANDROID_SH'
+  props_tmp="$(mktemp)"
+  keys_tmp="$(mktemp)"
+  profile_write_combined_props "$props_tmp"
+  profile_write_property_keys_file "$keys_tmp"
+  adb push "$props_tmp" /data/local/tmp/device-profile.props || {
+    rm -f "$props_tmp" "$keys_tmp"
+    return 1
+  }
+  adb push "$keys_tmp" /data/local/tmp/device-profile.keys || {
+    rm -f "$props_tmp" "$keys_tmp"
+    adb shell rm -f /data/local/tmp/device-profile.props >/dev/null 2>&1 || true
+    return 1
+  }
+  rm -f "$props_tmp" "$keys_tmp"
+  adb shell "DEVICE_PROFILE='${safe_profile}' sh -s" <<'ANDROID_SH'
 set -e
 
 PROPS=/data/local/tmp/device-profile.props
+KEYS=/data/local/tmp/device-profile.keys
 TARGET=/system/build.prop
+TMP=/data/local/tmp/device-profile.filtered
 
 [ -s "$PROPS" ]
+[ -s "$KEYS" ]
 [ -w "$TARGET" ]
 
-for f in /system/build.prop /vendor/build.prop /product/build.prop /system_ext/build.prop /odm/build.prop; do
-  [ -f "$f" ] || continue
-  for key in $PROFILE_KEYS; do
-    sed -i "/^${key}=.*/d" "$f" 2>/dev/null || true
-  done
+filter_prop_file() {
+  local file="$1"
+
+  [ -f "$file" ] || return 0
+  awk -F= '
+    NR == FNR {
+      if ($1 != "") {
+        drop[$1] = 1
+      }
+      next
+    }
+    /^[[:space:]]*($|#)/ {
+      print
+      next
+    }
+    {
+      key = $1
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+      if (!(key in drop)) {
+        print
+      }
+    }
+  ' "$KEYS" "$file" > "$TMP"
+  cat "$TMP" > "$file"
+  rm -f "$TMP"
+}
+
+for f in /system/build.prop /vendor/build.prop /product/build.prop /system_ext/build.prop /odm/build.prop /vendor/odm/etc/build.prop; do
+  filter_prop_file "$f" 2>/dev/null || true
 done
 
 {
@@ -263,11 +359,11 @@ done
   cat "$PROPS"
 } >> "$TARGET"
 
-rm -f "$PROPS"
+rm -f "$PROPS" "$KEYS" "$TMP"
 ANDROID_SH
   local rc=$?
   if [ "$rc" -ne 0 ]; then
-    adb shell rm -f /data/local/tmp/device-profile.props >/dev/null 2>&1 || true
+    adb shell rm -f /data/local/tmp/device-profile.props /data/local/tmp/device-profile.keys /data/local/tmp/device-profile.filtered >/dev/null 2>&1 || true
     return "$rc"
   fi
 
@@ -278,7 +374,7 @@ profile_install_system_props() {
   local installed=false
 
   load_device_profile
-  [ -s "$PROFILE_PROPS" ] || return 0
+  profile_has_system_props || return 0
 
   if [ "${PROFILE_FORCE_SYSTEM_PROPS:-0}" = "1" ]; then
     profile_install_props_system && installed=true
@@ -309,7 +405,7 @@ profile_verify_system_props() {
     esac
     expected="${expected%%#*}"
     expected="$(printf '%s' "$expected" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-    actual="$(adb shell getprop "$key" 2>/dev/null | tr -d '\r')"
+    actual="$(adb shell getprop "$key" </dev/null 2>/dev/null | tr -d '\r')"
     if [ "$actual" != "$expected" ]; then
       echo "[profile] property mismatch: ${key}: expected '${expected}', got '${actual}'" >&2
       failed=true
@@ -338,9 +434,17 @@ profile_wait_for_boot() {
 }
 
 profile_apply_runtime_settings() {
+  local completed
+
   load_device_profile
   profile_wait_for_boot
-  adb root || true
+  adb root >/dev/null 2>&1 || true
+  adb wait-for-device >/dev/null 2>&1 || true
+  for _ in $(seq 1 30); do
+    completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')"
+    [ "$completed" = "1" ] && break
+    sleep 1
+  done
 
   if [ -n "${PROFILE_TIMEZONE:-}" ]; then
     adb shell setprop persist.sys.timezone "$PROFILE_TIMEZONE" || true
@@ -352,17 +456,82 @@ profile_apply_runtime_settings() {
   fi
 
   if [ -n "${PROFILE_DEVICE_NAME:-}" ]; then
-    adb shell settings put global device_name "$PROFILE_DEVICE_NAME" || true
-    adb shell settings put secure bluetooth_name "$PROFILE_DEVICE_NAME" || true
+    adb shell "settings put global device_name $(profile_shell_quote "$PROFILE_DEVICE_NAME")" || true
+    adb shell "settings put secure bluetooth_name $(profile_shell_quote "$PROFILE_DEVICE_NAME")" || true
+  fi
+
+  if [ -n "${PROFILE_AUTO_TIME:-}" ]; then
+    adb shell settings put global auto_time "$PROFILE_AUTO_TIME" || true
+  fi
+
+  if [ -n "${PROFILE_AUTO_TIME_ZONE:-}" ]; then
+    adb shell settings put global auto_time_zone "$PROFILE_AUTO_TIME_ZONE" || true
   fi
 
   if [ -n "${PROFILE_ACCELEROMETER_ROTATION:-}" ]; then
     adb shell settings put system accelerometer_rotation "$PROFILE_ACCELEROMETER_ROTATION" || true
   fi
 
+  if [ -n "${PROFILE_WINDOW_ANIMATION_SCALE:-}" ]; then
+    adb shell settings put global window_animation_scale "$PROFILE_WINDOW_ANIMATION_SCALE" || true
+  fi
+
+  if [ -n "${PROFILE_TRANSITION_ANIMATION_SCALE:-}" ]; then
+    adb shell settings put global transition_animation_scale "$PROFILE_TRANSITION_ANIMATION_SCALE" || true
+  fi
+
+  if [ -n "${PROFILE_ANIMATOR_DURATION_SCALE:-}" ]; then
+    adb shell settings put global animator_duration_scale "$PROFILE_ANIMATOR_DURATION_SCALE" || true
+  fi
+
+  if [ -n "${PROFILE_STAY_ON_WHILE_PLUGGED_IN:-}" ]; then
+    adb shell settings put global stay_on_while_plugged_in "$PROFILE_STAY_ON_WHILE_PLUGGED_IN" || true
+  fi
+
+  if [ -n "${PROFILE_SCREEN_OFF_TIMEOUT_MS:-}" ]; then
+    adb shell settings put system screen_off_timeout "$PROFILE_SCREEN_OFF_TIMEOUT_MS" || true
+  fi
+
+  if [ -n "${PROFILE_AIRPLANE_MODE:-}" ]; then
+    adb shell settings put global airplane_mode_on "$PROFILE_AIRPLANE_MODE" || true
+    if [ "$PROFILE_AIRPLANE_MODE" = "1" ]; then
+      adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true >/dev/null 2>&1 || true
+    else
+      adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state false >/dev/null 2>&1 || true
+    fi
+  fi
+
+  if [ -n "${PROFILE_WIFI_ENABLED:-}" ]; then
+    if [ "$PROFILE_WIFI_ENABLED" = "1" ]; then
+      adb shell svc wifi enable || true
+    else
+      adb shell svc wifi disable || true
+    fi
+  fi
+
+  if [ -n "${PROFILE_MOBILE_DATA_ENABLED:-}" ]; then
+    if [ "$PROFILE_MOBILE_DATA_ENABLED" = "1" ]; then
+      adb shell svc data enable || true
+    else
+      adb shell svc data disable || true
+    fi
+  fi
+
   if [ -n "${PROFILE_LOCATION_MODE:-}" ]; then
     adb shell settings put secure location_mode "$PROFILE_LOCATION_MODE" || true
   fi
+
+  profile_adb_setprop_if_set "gsm.version.baseband" "${PROFILE_BASEBAND_VERSION:-}"
+  profile_adb_setprop_if_set "gsm.current.phone-type" "${PROFILE_GSM_CURRENT_PHONE_TYPE:-}"
+  profile_adb_setprop_if_set "gsm.network.type" "${PROFILE_GSM_NETWORK_TYPE:-}"
+  profile_adb_setprop_if_set "gsm.operator.alpha" "${PROFILE_GSM_OPERATOR_ALPHA:-}"
+  profile_adb_setprop_if_set "gsm.operator.numeric" "${PROFILE_GSM_OPERATOR_NUMERIC:-}"
+  profile_adb_setprop_if_set "gsm.operator.iso-country" "${PROFILE_GSM_OPERATOR_ISO_COUNTRY:-}"
+  profile_adb_setprop_if_set "gsm.operator.isroaming" "${PROFILE_GSM_OPERATOR_ISROAMING:-}"
+  profile_adb_setprop_if_set "gsm.sim.operator.alpha" "${PROFILE_GSM_SIM_OPERATOR_ALPHA:-}"
+  profile_adb_setprop_if_set "gsm.sim.operator.numeric" "${PROFILE_GSM_SIM_OPERATOR_NUMERIC:-}"
+  profile_adb_setprop_if_set "gsm.sim.operator.iso-country" "${PROFILE_GSM_SIM_OPERATOR_ISO_COUNTRY:-}"
+  profile_adb_setprop_if_set "gsm.sim.state" "${PROFILE_GSM_SIM_STATE:-}"
 
   if [ -n "${PROFILE_BATTERY_LEVEL:-}" ]; then
     adb shell dumpsys battery set level "$PROFILE_BATTERY_LEVEL" || true

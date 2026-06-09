@@ -66,6 +66,10 @@ echo "--- Runtime profile checks ---"
 expect_text "sys.boot_completed" "1" "$(prop sys.boot_completed)"
 expect_text "persist.sys.timezone" "${PROFILE_TIMEZONE:-}" "$(prop persist.sys.timezone)"
 expect_text "device_name" "${PROFILE_DEVICE_NAME:-}" "$(setting global device_name)"
+expect_text "gsm.version.baseband" "${PROFILE_BASEBAND_VERSION:-}" "$(prop gsm.version.baseband)"
+expect_text "gsm.network.type" "${PROFILE_GSM_NETWORK_TYPE:-}" "$(prop gsm.network.type)"
+expect_text "gsm.operator.alpha" "${PROFILE_GSM_OPERATOR_ALPHA:-}" "$(prop gsm.operator.alpha)"
+expect_text "gsm.operator.numeric" "${PROFILE_GSM_OPERATOR_NUMERIC:-}" "$(prop gsm.operator.numeric)"
 echo
 
 echo "--- Display ---"
@@ -85,4 +89,4 @@ echo
 
 echo "--- macOS runner scope ---"
 echo "root_magisk=not managed by macOS native runner"
-echo "system_build_prop=not managed by macOS native runner"
+echo "system_build_prop=default unchanged; explicit overlay via scripts/macos-apply-system-props.sh"

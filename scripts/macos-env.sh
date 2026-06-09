@@ -122,6 +122,10 @@ macos_avd_dir() {
   printf '%s/%s.avd\n' "$(macos_avd_home)" "$1"
 }
 
+macos_boot_props_file() {
+  printf '%s\n' "${MACOS_BOOT_PROPS_FILE:-${PROFILE_DIR}/props.macos-boot}"
+}
+
 macos_device_id() {
   local device_id
 
