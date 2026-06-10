@@ -322,8 +322,27 @@ The overlay script backs up observed build-property files under
 `/data/local/tmp/dockerify-build-prop-backups/`, filters duplicate profile keys
 from `/system`, `/vendor`, `/product`, `/system_ext`, `/odm`, and
 `/vendor/odm/etc/build.prop`, appends the selected profile values to
-`/system/build.prop`, reboots, and reapplies runtime settings. It still does not
-manage Docker-only root/Magisk, OpenGApps injection, or ndk_translation.
+`/system/build.prop`, reboots, and reapplies runtime settings. The overlay
+script itself does not manage root/Magisk, OpenGApps injection, or
+ndk_translation.
+
+Experimental native rootAVD support is available without Docker. Start the
+native AVD first, then patch the profile's SDK `ramdisk.img` with rootAVD:
+
+```bash
+MACOS_NO_WINDOW=0 DEVICE_PROFILE=pixel_5_android_11 ./scripts/macos-run-avd.sh
+DEVICE_PROFILE=pixel_5_android_11 ./scripts/macos-rootavd.sh
+adb -s emulator-5584 emu kill
+MACOS_NO_WINDOW=0 DEVICE_PROFILE=pixel_5_android_11 ./scripts/macos-run-avd.sh
+```
+
+`macos-rootavd.sh` downloads rootAVD into `~/.dockerify-android/rootavd`, backs
+up the selected SDK system image `ramdisk.img`, patches it, and copies the
+patched ramdisk into the profile AVD directory. This mutates the local Android
+SDK system image used by matching AVDs; run
+`DEVICE_PROFILE=pixel_5_android_11 ./scripts/macos-rootavd.sh restore` to
+restore the latest generated backup. Native rootAVD does not install OpenGApps
+or ndk_translation.
 
 
 ## 🔄 **First Boot Process**
