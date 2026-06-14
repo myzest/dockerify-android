@@ -20,11 +20,8 @@ for f in \
   echo "ok $f"
 done
 
-section "profile duplicate keys"
-awk -F= '!/^($|#)/{count[$1]++; if(count[$1]==2){print "strict duplicate",$1; bad=1}} END{exit bad?1:0}' profiles/pixel_5_android_11/props.system
-awk -F= '!/^($|#)/{count[$1]++; if(count[$1]==2){print "optional duplicate",$1; bad=1}} END{exit bad?1:0}' profiles/pixel_5_android_11/props.optional
-awk -F= '!/^($|#)/{count[$1]++; if(count[$1]==2){print "avd duplicate",$1; bad=1}} END{exit bad?1:0}' profiles/pixel_5_android_11/avd.ini
-echo "no duplicate keys"
+section "profile lint"
+PROFILE_LINT_INCLUDE_TEMPLATES=1 ./scripts/profile-lint.sh
 
 section "audit json fixture"
 ./scripts/audit-json-test.sh

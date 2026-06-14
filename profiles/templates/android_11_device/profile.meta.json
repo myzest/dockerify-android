@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "id": "android_11_device",
+  "label": "Example Android 11 Device",
+  "status": "template",
+  "android": {
+    "api_level": 30,
+    "release": "11",
+    "system_image": "system-images;android-30;default;x86_64"
+  },
+  "device": {
+    "manufacturer": "Example",
+    "brand": "example",
+    "model": "Example Device",
+    "product": "example_product",
+    "device": "example_device"
+  },
+  "references": [],
+  "capabilities": {
+    "docker": true,
+    "macos_native": true,
+    "rootavd": false,
+    "gapps": false,
+    "arm_translation": false,
+    "audit_json": true
+  },
+  "known_boundaries": [
+    "Template profile values must be replaced with evidence-backed device data before production use."
+  ],
+  "audit": {
+    "expected_scope": "docker",
+    "minimum_score": 0,
+    "strict_props": "props.system",
+    "optional_props": null
+  }
+}

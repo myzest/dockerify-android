@@ -180,9 +180,15 @@ DEVICE_PROFILE=pixel_5_android_11 docker compose up -d
 ```
 
 To add another device, copy `profiles/templates/android_11_device` to a new
-directory under `profiles/`, edit the values, and set `DEVICE_PROFILE` to that
-directory name. Runtime overrides such as `SCREEN_RESOLUTION`, `SCREEN_DENSITY`,
-`RAM_SIZE`, and `DNS` still take precedence over profile defaults.
+directory under `profiles/`, edit `profile.env`, `profile.meta.json`,
+`props.system`, and `avd.ini`, then set `DEVICE_PROFILE` to that directory name.
+Runtime overrides such as `SCREEN_RESOLUTION`, `SCREEN_DENSITY`, `RAM_SIZE`,
+and `DNS` still take precedence over profile defaults. Validate profile files
+before booting:
+
+```bash
+./scripts/profile-lint.sh <profile_name>
+```
 
 Each profile declares `PROFILE_ANDROID_API_LEVEL` and `PROFILE_ANDROID_RELEASE`.
 The boot script refuses to apply a profile that does not match the Android

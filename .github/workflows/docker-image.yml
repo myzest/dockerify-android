@@ -31,6 +31,9 @@ jobs:
             echo "ok $f"
           done
 
+      - name: Lint device profiles
+        run: PROFILE_LINT_INCLUDE_TEMPLATES=1 ./scripts/profile-lint.sh
+
       - name: Validate audit JSON fixture
         run: ./scripts/audit-json-test.sh
 

@@ -16,6 +16,8 @@ DEVICE_PROFILE=pixel_5_android_11 ./scripts/macos-run-avd.sh
 Each profile can include:
 
 - `profile.env`: exported profile defaults such as RAM, display, locale, timezone, and battery state.
+- `profile.meta.json`: machine-readable metadata for linting, provenance,
+  support status, capabilities, audit thresholds, and known emulator boundaries.
 - `props.system`: strict Android system properties applied on boot and verified after reboot.
 - `props.optional`: Docker-runner best-effort Android properties installed with the profile but reported as non-fatal audit findings if the emulator runtime does not expose them.
 - `avd.ini`: AVD `config.ini` overrides applied before emulator startup.
@@ -77,6 +79,24 @@ comparison, or dashboards. The JSON report includes profile metadata, scope,
 summary counts, a 0-100 score, and structured check records with category,
 status, severity, expected/actual values, messages, and recommendations.
 
+Before starting a profile, lint it locally:
+
+```bash
+./scripts/profile-lint.sh
+PROFILE_LINT_INCLUDE_TEMPLATES=1 ./scripts/profile-lint.sh
+./scripts/profile-lint.sh pixel_5_android_11
+```
+
+The linter checks:
+
+- required `profile.env` fields and basic value formats;
+- valid `profile.meta.json` schema, support status, capabilities, audit fields,
+  and consistency with `profile.env`;
+- duplicate or malformed keys in `props.system`, `props.optional`, and
+  `avd.ini`;
+- display, density, RAM, Android version, and identity consistency across
+  profile files.
+
 Useful macOS-specific `profile.env` fields:
 
 - `PROFILE_MACOS_AVD_NAME`: stable AVD name for this profile.
@@ -85,5 +105,7 @@ Useful macOS-specific `profile.env` fields:
 - `PROFILE_MACOS_SYSTEM_IMAGE_X86_64`: system image for Intel Macs.
 
 To add a device, copy `templates/android_11_device` to a new directory and edit
-the values. Prefer matching the profile's Android version with the emulator
-system image in the Dockerfile or the profile's macOS system image fields.
+the values in `profile.env`, `profile.meta.json`, `props.system`, and
+`avd.ini`. Prefer matching the profile's Android version with the emulator
+system image in the Dockerfile or the profile's macOS system image fields. Run
+`./scripts/profile-lint.sh <new_profile>` before booting it.

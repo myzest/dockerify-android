@@ -1,0 +1,50 @@
+{
+  "schema_version": "1.0",
+  "id": "pixel_5_android_11",
+  "label": "Google Pixel 5 / Android 11",
+  "status": "supported",
+  "android": {
+    "api_level": 30,
+    "release": "11",
+    "system_image": "system-images;android-30;default;x86_64"
+  },
+  "device": {
+    "manufacturer": "Google",
+    "brand": "google",
+    "model": "Pixel 5",
+    "product": "redfin",
+    "device": "redfin"
+  },
+  "references": [
+    {
+      "name": "androidtrackers/certified-android-devices",
+      "url": "https://github.com/androidtrackers/certified-android-devices",
+      "evidence": "brand=Google, device=redfin, name=Pixel 5, model=Pixel 5"
+    },
+    {
+      "name": "bsthen/device-models",
+      "url": "https://github.com/bsthen/device-models",
+      "evidence": "Pixel 5 => brand=Google, name=Pixel 5"
+    }
+  ],
+  "capabilities": {
+    "docker": true,
+    "macos_native": true,
+    "rootavd": true,
+    "gapps": true,
+    "arm_translation": true,
+    "audit_json": true
+  },
+  "known_boundaries": [
+    "Android Emulator runtime remains visible through low-level QEMU/ranchu markers.",
+    "TEE, StrongBox, baseband, SIM/IMEI, and real sensor noise are not hardware-backed.",
+    "ANGLE/SwiftShader GPU strings and host CPU artifacts may remain visible.",
+    "ADB and developer settings may be enabled for manageability."
+  ],
+  "audit": {
+    "expected_scope": "docker",
+    "minimum_score": 60,
+    "strict_props": "props.system",
+    "optional_props": "props.optional"
+  }
+}
