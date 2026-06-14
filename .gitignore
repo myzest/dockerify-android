@@ -13,3 +13,6 @@ Thumbs.db
 
 # Docker compose data
 data*/
+
+# Local macOS native-runner state and logs
+.dockerify/

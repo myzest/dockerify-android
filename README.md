@@ -209,6 +209,7 @@ To inspect the active device after boot:
 ```bash
 docker exec dockerify-android /opt/dockerify-android/scripts/verify-profile.sh
 docker exec dockerify-android /opt/dockerify-android/scripts/audit-real-device-fidelity.sh
+docker exec dockerify-android /opt/dockerify-android/scripts/audit-real-device-fidelity.sh --json > audit.json
 ```
 
 When using the macOS native runner, run the same audit against the emulator
@@ -218,12 +219,20 @@ informational because the macOS runner does not install `props.system` or
 
 ```bash
 ANDROID_SERIAL=emulator-5584 ./scripts/audit-real-device-fidelity.sh
+ANDROID_SERIAL=emulator-5584 ./scripts/audit-real-device-fidelity.sh --json > audit.json
 ```
+
+The default audit output is optimized for humans. `--json` emits a structured
+report with `profile`, `serial`, `scope`, `summary`, `score`, `result`, and a
+`checks[]` array. Each check includes an id, category, status, severity,
+expected/actual values, message, and optional recommendation, so CI, matrix
+runners, and future web dashboards can consume the same fidelity data.
 
 For a repeatable local Mac integrity check, run:
 
 ```bash
 ./scripts/macos-integrity-test.sh
+./scripts/audit-json-test.sh
 ```
 
 ### DevInfo-driven fidelity checks

@@ -26,6 +26,9 @@ awk -F= '!/^($|#)/{count[$1]++; if(count[$1]==2){print "optional duplicate",$1; 
 awk -F= '!/^($|#)/{count[$1]++; if(count[$1]==2){print "avd duplicate",$1; bad=1}} END{exit bad?1:0}' profiles/pixel_5_android_11/avd.ini
 echo "no duplicate keys"
 
+section "audit json fixture"
+./scripts/audit-json-test.sh
+
 section "macos doctor"
 ./scripts/macos-doctor.sh
 

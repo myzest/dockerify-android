@@ -59,6 +59,7 @@ emulator or instrumentation boundaries remain visible:
 
 ```bash
 docker exec dockerify-android /opt/dockerify-android/scripts/audit-real-device-fidelity.sh
+docker exec dockerify-android /opt/dockerify-android/scripts/audit-real-device-fidelity.sh --json > audit.json
 ```
 
 For the macOS native runner:
@@ -66,8 +67,15 @@ For the macOS native runner:
 ```bash
 ./scripts/macos-verify-profile.sh
 ANDROID_SERIAL=emulator-5584 ./scripts/audit-real-device-fidelity.sh
+ANDROID_SERIAL=emulator-5584 ./scripts/audit-real-device-fidelity.sh --json > audit.json
 ./scripts/macos-integrity-test.sh
+./scripts/audit-json-test.sh
 ```
+
+Use `--json` when the audit result should feed CI, matrix runners, historical
+comparison, or dashboards. The JSON report includes profile metadata, scope,
+summary counts, a 0-100 score, and structured check records with category,
+status, severity, expected/actual values, messages, and recommendations.
 
 Useful macOS-specific `profile.env` fields:
 

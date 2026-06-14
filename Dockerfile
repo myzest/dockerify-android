@@ -10,6 +10,7 @@ RUN apt-get update && \
         curl \
         git \
         lzip \
+        python3 \
         unzip \
         supervisor \
         qemu-kvm \
